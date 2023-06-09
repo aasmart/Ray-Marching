@@ -1,0 +1,182 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+float width;
+float height;
+float4 light;
+bool isLightDirectional;
+float4x4 cameraToWorld;
+float4x4 cameraInverseProjection;
+
+Texture2D skyboxTexture;
+SamplerState sampler_skyboxTexture;
+
+static const float PI = 3.1415926535f;
+static const float GRADIENT_STEP = .001f;
+static const float MAX_DISTANCE = 2000.0f;
+static const float HIT_THRESHOLD = 0.0001f;
+static const float MAX_STEPS = 255;
+
+struct Ray
+{
+    float3 origin;
+    float3 direction;
+};
+
+struct Shape
+{
+    int type;
+    float4 albedo;
+    float3 position;
+    float3 dimensions;
+};
+
+RWStructuredBuffer<Shape> shapes;
+int numShapes;
+
+float4 sampleSkybox(Ray ray)
+{
+    float theta = acos(ray.direction.y) / -PI;
+    float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+    return skyboxTexture.SampleLevel(sampler_skyboxTexture, float2(phi, theta), 0);
+}
+
+float signedDistanceEllipsoid(float3 pointA, float3 dimensions, float3 center)
+{
+    float k0 = length((pointA - center) / (dimensions));
+    float k1 = length((pointA - center) / dimensions * dimensions);
+    return k0 * (k0 - 1.0) / k1;
+}
+
+// https://iquilezles.org/articles/distfunctions/
+float signedDistanceBox(float3 pointA, float3 dimensions, float3 center)
+{
+    float3 q = abs(pointA - center) - dimensions;
+    return length(max(q, 0.0f)) + min(max(q.x, max(q.y, q.z)), 0.0f);
+}
+
+float signedDistanceTorus(float3 pointA, float2 dimensions, float3 center)
+{
+    float2 q = float2(length(pointA.xz - center.xz) - dimensions.x, pointA.y - center.y);
+    return length(q) - dimensions.y;
+}
+
+float getSignedDistance(Shape shape, float3 rayPos)
+{
+    switch (shape.type)
+    {
+        case 0: // Ellipsoid
+            return signedDistanceEllipsoid(rayPos, shape.dimensions, shape.position);
+        case 1: // Box
+            return signedDistanceBox(rayPos, shape.dimensions, shape.position);
+        default:
+            return MAX_DISTANCE;
+    }
+}
+
+Ray createRay(float3 origin, float3 direction)
+{
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+
+    return ray;
+}
+
+/*
+ * Returns a 2d vector containing the distance in the x component and the
+ * shape index in the y
+ */
+float2 sceneSdf(const float3 rayPos)
+{
+    float distance = MAX_DISTANCE;
+    int shapeIndex = -1;
+
+    for(int i = 0; i < numShapes; i++)
+    {
+        const float dst = getSignedDistance(shapes[i], rayPos);
+        if(dst < distance)
+        {
+            shapeIndex = i;
+            distance = dst;
+        }
+    }
+    
+    return float2(distance, shapeIndex);
+}
+
+/*
+ * Calculates the surface normal by approximating the gradient at a point on a shapes surface  
+ */
+float3 calculateNormal(float3 pos)
+{
+    float gradientX = sceneSdf(float3(pos.x + GRADIENT_STEP, pos.y, pos.z)).x - sceneSdf(float3(pos.x - GRADIENT_STEP, pos.y, pos.z)).x;
+    float gradientY = sceneSdf(float3(pos.x, pos.y + GRADIENT_STEP, pos.z)).x - sceneSdf(float3(pos.x, pos.y - GRADIENT_STEP, pos.z)).x;
+    float gradientZ = sceneSdf(float3(pos.x, pos.y, pos.z + GRADIENT_STEP)).x - sceneSdf(float3(pos.x, pos.y, pos.z - GRADIENT_STEP)).x;
+
+    return normalize(float3(gradientX, gradientY, gradientZ) / GRADIENT_STEP);
+}
+
+float4 marchRay(const in Ray ray)
+{
+    float distance = 0;
+
+    for(int i = 0; i < MAX_STEPS; i++)
+    {
+        float3 position = ray.origin + ray.direction * distance;
+        float2 result = sceneSdf(position);
+        
+        float closestDistance = result.x;
+        float shape = result.y;
+
+        if(closestDistance <= HIT_THRESHOLD)
+        {
+            float3 normal = calculateNormal(position);
+            float3 dirToLight = normalize(position - light.xyz);
+
+            float diffuse = saturate(dot(normal, dirToLight)) * light.w;
+            
+            
+            return shape >= 0 ? shapes[shape].albedo : float4(0,0,0,0) * diffuse;   
+        }
+
+        if(distance >= MAX_DISTANCE)
+        {
+            break;   
+        }
+
+        distance += closestDistance;
+    }
+
+    return sampleSkybox(ray);
+}
+
+Ray createCameraRay(float2 uvPos)
+{
+    // Camera origin to world space
+    float3 origin = mul(cameraToWorld, float4(0,0,0,1.0f)).xyz;
+
+    // Invert perspective projection of the view space position
+    float3 dir = mul(cameraInverseProjection, float4(uvPos, 0, 1.0f)).xyz;
+
+    // Direction from camera to world space
+    dir = mul(cameraToWorld, float4(dir, 0.0f)).xyz;
+    dir = normalize(dir);
+
+    return createRay(origin, dir);
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // Remap UVs from -1 to 1
+    float2 pos = 2 * float2(id.x / width, id.y / height) - 1;
+
+    Ray ray = createCameraRay(pos);
+    
+    Result[id.xy] = marchRay(ray);
+}
