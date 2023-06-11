@@ -18,7 +18,7 @@ SamplerState sampler_skyboxTexture;
 static const float PI = 3.1415926535f;
 static const float GRADIENT_STEP = .001f;
 static const float MAX_DISTANCE = 2000.0f;
-static const float HIT_THRESHOLD = 0.0001f;
+static const float HIT_THRESHOLD = 0.001f;
 static const float MAX_STEPS = 255;
 
 struct Ray
@@ -48,7 +48,7 @@ float4 sampleSkybox(Ray ray)
 float signedDistanceEllipsoid(float3 pointA, float3 dimensions, float3 center)
 {
     float k0 = length((pointA - center) / (dimensions));
-    float k1 = length((pointA - center) / dimensions * dimensions);
+    float k1 = length((pointA - center) / (dimensions * dimensions));
     return k0 * (k0 - 1.0) / k1;
 }
 
@@ -141,7 +141,7 @@ float4 marchRay(const in Ray ray)
             float diffuse = saturate(dot(normal, dirToLight)) * light.w;
             
             
-            return shape >= 0 ? shapes[shape].albedo : float4(0,0,0,0) * diffuse;   
+            return (shape >= 0 ? shapes[shape].albedo : float4(0,0,0,0)) * diffuse;   
         }
 
         if(distance >= MAX_DISTANCE)

@@ -27,16 +27,10 @@ public class Shape : MonoBehaviour {
     }
 
     private void Update() {
-        position = transform.position;
+        position = transform.localPosition;
         
         var meshSize = _meshFilter.mesh.bounds.size;
-        var scale = transform.localScale;
-        var meshDimensions = new Vector3(
-            meshSize.x * scale.x,
-            meshSize.y * scale.y,
-            meshSize.z * scale.z
-        );
-        dimensions = meshDimensions;
+        dimensions = Vector3.Scale(meshSize * 0.5f, transform.localScale);
     }
 
     public ShapeData ToData() {

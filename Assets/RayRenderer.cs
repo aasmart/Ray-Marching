@@ -7,6 +7,7 @@ using UnityEngine.Experimental.GlobalIllumination;
 using UnityEngine.Experimental.Rendering;
 using LightType = UnityEngine.LightType;
 
+[ExecuteInEditMode, ImageEffectAllowedInSceneView]
 public class RayRenderer : MonoBehaviour {
     public ComputeShader _shader;
     private Camera _camera;
