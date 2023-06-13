@@ -41,6 +41,8 @@ struct Shape
     int type;
     int numChildren;
     int operation;
+    int blendSmooth;
+    float blendStrength;
     float4 albedo;
     float3 position;
     float3 dimensions;
@@ -89,7 +91,37 @@ float getSignedDistance(Shape shape, float3 rayPos)
     }
 }
 
-float4 combine(float distA, float distB, float3 colorA, float3 colorB, int operation = 0)
+// https://iquilezles.org/articles/distfunctions/
+float4 smoothBlendUnion(float a, float b, float3 colorA, float3 colorB, float blendFactor)
+{
+    float t = clamp( 0.5 + 0.5 * (b - a) / blendFactor, 0.0, 1.0 );
+    float3 color = lerp(colorB, colorA, t);
+    float distance = lerp(b, a, t) - blendFactor * t * (1.0 - t);
+    
+    return float4(color, distance);
+}
+
+// https://iquilezles.org/articles/distfunctions/
+float4 smoothBlendIntersection(float a, float b, float3 colorA, float3 colorB, float blendFactor)
+{
+    float t = clamp( 0.5 - 0.5 * (b - a) / blendFactor, 0.0, 1.0 );
+    float3 color = lerp(colorB, colorA, t);
+    float distance  =lerp(b, a, t) - blendFactor * t * (1.0 - t);
+    
+    return float4(color, distance);
+}
+
+// https://iquilezles.org/articles/distfunctions/
+float4 smoothBlendSubtraction(float a, float b, float3 colorA, float3 colorB, float blendFactor)
+{
+    float t = clamp( 0.5 - 0.5 * (b + a) / blendFactor, 0.0, 1.0 );
+    float3 color = lerp(colorB, colorA, t);
+    float distance = lerp(b, a, t) - blendFactor * t * (1.0 - t);
+    
+    return float4(color, distance);
+}
+
+float4 combine(float distA, float distB, float3 colorA, float3 colorB, int operation, bool smooth, float blendStrength)
 {
     float3 color = colorA;
     float distance = distA;
@@ -97,6 +129,9 @@ float4 combine(float distA, float distB, float3 colorA, float3 colorB, int opera
     switch (operation)
     {
         case 0: // Union
+            if(smooth)
+                return smoothBlendUnion(distA, distB, colorA, colorB, blendStrength);
+        
             if(distB < distA)
             {
                 color = colorB;
@@ -104,6 +139,8 @@ float4 combine(float distA, float distB, float3 colorA, float3 colorB, int opera
             }
             break;
         case 1: // Intersection
+            if(smooth)
+                return smoothBlendIntersection(distA, distB, colorA, colorB, blendStrength);
             if(distB > distA)
             {
                 color = colorB;
@@ -111,14 +148,14 @@ float4 combine(float distA, float distB, float3 colorA, float3 colorB, int opera
             }
             break;
         case 2: // Difference
+            if(smooth)
+                return smoothBlendSubtraction(distA, distB, colorA, colorB, blendStrength);
+        
             if(-distB > distA)
             {
                 color = colorB;
                 distance = -distB;
             }
-            break;
-        case 3:
-            
             break;
         default:
             break;
@@ -149,14 +186,30 @@ float4 sceneSdf(const float3 rayPos)
             const Shape childShape = shapes[child + i + 1];
             const float childDistance = getSignedDistance(childShape, rayPos);
 
-            float4 result = combine(localDistance, childDistance, localAlbedo, childShape.albedo.xyz, childShape.operation);
+            float4 result = combine(
+                localDistance,
+                childDistance,
+                localAlbedo,
+                childShape.albedo.xyz,
+                childShape.operation,
+                childShape.blendSmooth == 1,
+                childShape.blendStrength
+            );
             localDistance = result.w;
             localAlbedo = result.xyz;
         }
 
         i += shape.numChildren;
         
-        float4 result = combine(absoluteDistance, localDistance, absoluteAlbedo, localAlbedo, shape.operation);
+        float4 result = combine(
+            absoluteDistance,
+            localDistance,
+            absoluteAlbedo,
+            localAlbedo,
+            shape.operation,
+            shape.blendSmooth == 1,
+            shape.blendStrength
+        );
         absoluteDistance = result.w;
         absoluteAlbedo = result.xyz;
     }

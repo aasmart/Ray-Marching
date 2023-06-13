@@ -11,13 +11,17 @@ public enum ShapeType {
 public enum BlendMode {
     Union,
     Intersection,
-    Difference
+    Difference,
 }
 
 [RequireComponent(typeof(MeshFilter))]
 public class Shape : MonoBehaviour {
     public ShapeType type;
     public BlendMode blendMode;
+    public bool blendSmooth;
+    
+    [Range(0, 1)]
+    public float blendStrength = 0.5f;
     public Color albedo;
     private Vector3 position;
     private Vector3 dimensions;
@@ -51,7 +55,9 @@ public class Shape : MonoBehaviour {
             position = position,
             dimensions = dimensions,
             numChildren = children.Length - 1,
-            operation = (int)blendMode
+            operation = (int)blendMode,
+            blendSmooth = blendSmooth ? 1 : 0,
+            blendStrength = blendStrength
         };
     }
 }
@@ -60,11 +66,13 @@ public struct ShapeData {
     public int type;
     public int numChildren;
     public int operation;
+    public int blendSmooth;
+    public float blendStrength;
     public Vector4 albedo;
     public Vector3 position;
     public Vector3 dimensions;
 
     public static int SizeOf() {
-        return 10 * sizeof(float) + 3 * sizeof(int);
+        return 11 * sizeof(float) + 4 * sizeof(int);
     }
 }
