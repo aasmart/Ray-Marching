@@ -27,15 +27,26 @@ struct Ray
     float3 direction;
 };
 
+Ray createRay(float3 origin, float3 direction)
+{
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+
+    return ray;
+}
+
 struct Shape
 {
     int type;
+    int numChildren;
+    int operation;
     float4 albedo;
     float3 position;
     float3 dimensions;
 };
 
-RWStructuredBuffer<Shape> shapes;
+StructuredBuffer<Shape> shapes;
 int numShapes;
 
 float4 sampleSkybox(Ray ray)
@@ -78,35 +89,79 @@ float getSignedDistance(Shape shape, float3 rayPos)
     }
 }
 
-Ray createRay(float3 origin, float3 direction)
+float4 combine(float distA, float distB, float3 colorA, float3 colorB, int operation = 0)
 {
-    Ray ray;
-    ray.origin = origin;
-    ray.direction = direction;
+    float3 color = colorA;
+    float distance = distA;
+    
+    switch (operation)
+    {
+        case 0: // Union
+            if(distB < distA)
+            {
+                color = colorB;
+                distance = distB;
+            }
+            break;
+        case 1: // Intersection
+            if(distB > distA)
+            {
+                color = colorB;
+                distance = distB;
+            }
+            break;
+        case 2: // Difference
+            if(-distB > distA)
+            {
+                color = colorB;
+                distance = -distB;
+            }
+            break;
+        case 3:
+            
+            break;
+        default:
+            break;
+    }
 
-    return ray;
+    return float4(color, distance);
 }
 
 /*
  * Returns a 2d vector containing the distance in the x component and the
  * shape index in the y
  */
-float2 sceneSdf(const float3 rayPos)
+float4 sceneSdf(const float3 rayPos)
 {
-    float distance = MAX_DISTANCE;
-    int shapeIndex = -1;
+    float absoluteDistance = MAX_DISTANCE;
+    float3 absoluteAlbedo;
 
+    // Uses children to isolate the blend operations
     for(int i = 0; i < numShapes; i++)
     {
-        const float dst = getSignedDistance(shapes[i], rayPos);
-        if(dst < distance)
+        const Shape shape = shapes[i];
+
+        float localDistance = getSignedDistance(shape, rayPos);
+        float3 localAlbedo = shape.albedo.xyz;
+        
+        for(int child = 0; child < shape.numChildren; child++)
         {
-            shapeIndex = i;
-            distance = dst;
+            const Shape childShape = shapes[child + i + 1];
+            const float childDistance = getSignedDistance(childShape, rayPos);
+
+            float4 result = combine(localDistance, childDistance, localAlbedo, childShape.albedo.xyz, childShape.operation);
+            localDistance = result.w;
+            localAlbedo = result.xyz;
         }
+
+        i += shape.numChildren;
+        
+        float4 result = combine(absoluteDistance, localDistance, absoluteAlbedo, localAlbedo, shape.operation);
+        absoluteDistance = result.w;
+        absoluteAlbedo = result.xyz;
     }
     
-    return float2(distance, shapeIndex);
+    return float4(absoluteAlbedo, absoluteDistance);
 }
 
 /*
@@ -114,9 +169,9 @@ float2 sceneSdf(const float3 rayPos)
  */
 float3 calculateNormal(float3 pos)
 {
-    float gradientX = sceneSdf(float3(pos.x + GRADIENT_STEP, pos.y, pos.z)).x - sceneSdf(float3(pos.x - GRADIENT_STEP, pos.y, pos.z)).x;
-    float gradientY = sceneSdf(float3(pos.x, pos.y + GRADIENT_STEP, pos.z)).x - sceneSdf(float3(pos.x, pos.y - GRADIENT_STEP, pos.z)).x;
-    float gradientZ = sceneSdf(float3(pos.x, pos.y, pos.z + GRADIENT_STEP)).x - sceneSdf(float3(pos.x, pos.y, pos.z - GRADIENT_STEP)).x;
+    float gradientX = sceneSdf(float3(pos.x + GRADIENT_STEP, pos.y, pos.z)).w - sceneSdf(float3(pos.x - GRADIENT_STEP, pos.y, pos.z)).w;
+    float gradientY = sceneSdf(float3(pos.x, pos.y + GRADIENT_STEP, pos.z)).w - sceneSdf(float3(pos.x, pos.y - GRADIENT_STEP, pos.z)).w;
+    float gradientZ = sceneSdf(float3(pos.x, pos.y, pos.z + GRADIENT_STEP)).w - sceneSdf(float3(pos.x, pos.y, pos.z - GRADIENT_STEP)).w;
 
     return normalize(float3(gradientX, gradientY, gradientZ) / GRADIENT_STEP);
 }
@@ -128,20 +183,19 @@ float4 marchRay(const in Ray ray)
     for(int i = 0; i < MAX_STEPS; i++)
     {
         float3 position = ray.origin + ray.direction * distance;
-        float2 result = sceneSdf(position);
+        float4 result = sceneSdf(position);
         
-        float closestDistance = result.x;
-        float shape = result.y;
+        float closestDistance = result.w;
+        float4 albedo = float4(result.xyz, 1);
 
         if(closestDistance <= HIT_THRESHOLD)
         {
             float3 normal = calculateNormal(position);
             float3 dirToLight = normalize(position - light.xyz);
 
-            float diffuse = saturate(dot(normal, dirToLight)) * light.w;
+            float diffuse = saturate(dot(normal, isLightDirectional ? dirToLight : -dirToLight)) * light.w;
             
-            
-            return (shape >= 0 ? shapes[shape].albedo : float4(0,0,0,0)) * diffuse;   
+            return albedo * diffuse;   
         }
 
         if(distance >= MAX_DISTANCE)

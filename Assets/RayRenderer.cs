@@ -12,8 +12,8 @@ public class RayRenderer : MonoBehaviour {
     public ComputeShader _shader;
     private Camera _camera;
     private RenderTexture _rTexture;
+    [SerializeField] private GameObject _shapes;
     [SerializeField] private Texture _texture;
-
     [SerializeField] private Light _lightSource;
     
     private void Init() {
@@ -61,14 +61,39 @@ public class RayRenderer : MonoBehaviour {
     }
 
     private ComputeBuffer SceneShapeDataBuffer() {
-        var shapes = FindObjectsByType<Shape>(FindObjectsInactive.Exclude, FindObjectsSortMode.InstanceID);
+        /*
+         * A hacky solution to sort the shapes in the hierarchy based on an elements sibling index,
+         * if it has a parent, and the number of previous children in the hierarchy.
+         */
+        
+        // Number of previous children in the hierarchy
+        var childOffsetAmount = 0;
+        var shapes = _shapes.GetComponentsInChildren<Shape>()
+            .OrderBy(shape => {
+                var trans = shape.transform;
+                var hasShapeParent = trans.parent.gameObject != _shapes;
+                
+                var siblingIndex = trans.GetSiblingIndex();
+                var parentIndex = hasShapeParent ? trans.parent.GetSiblingIndex() + 1 : 0;
+                var parentChildCount = hasShapeParent ? trans.parent.childCount : 0;
+                
+                /* The value is offset by the parent's child count since the child offset amount
+                 has already been increased by the parent's number of children*/
+                var absoluteIndex = siblingIndex + parentIndex + childOffsetAmount - parentChildCount;
+
+                childOffsetAmount += trans.childCount;
+                return absoluteIndex;
+            }).ToArray();
 
         var shapeData = new ShapeData[shapes.Length];
-        for (var i = 0; i < shapeData.Length; i++)
+        for (var i = 0; i < shapeData.Length; i++) {
             shapeData[i] = shapes[i].ToData();
+        }
 
         var buffer = new ComputeBuffer(shapeData.Length, ShapeData.SizeOf());
         buffer.SetData(shapeData);
+        
+        // Debug.Log(buffer.GetData());
 
         return buffer;
     }
