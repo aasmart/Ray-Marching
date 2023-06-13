@@ -5,7 +5,8 @@ using UnityEngine;
 
 public enum ShapeType {
     Ellipsoid,
-    Box
+    Box,
+    Torus
 }
 
 public enum BlendMode {

@@ -86,6 +86,8 @@ float getSignedDistance(Shape shape, float3 rayPos)
             return signedDistanceEllipsoid(rayPos, shape.dimensions, shape.position);
         case 1: // Box
             return signedDistanceBox(rayPos, shape.dimensions, shape.position);
+        case 2: // Torus
+            return signedDistanceTorus(rayPos, shape.dimensions, shape.position);
         default:
             return MAX_DISTANCE;
     }
