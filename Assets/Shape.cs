@@ -21,20 +21,19 @@ public class Shape : MonoBehaviour {
     public ShapeType type;
     public BlendMode blendMode;
     public bool blendSmooth;
-    
-    [Range(0, 1)]
-    public float blendStrength = 0.5f;
+    [Range(0, 1)] public float blendStrength = 0.5f;
     public Color albedo;
-    private Vector3 position;
-    private Vector3 dimensions;
-
+    
+    private Vector3 _position;
+    private Vector3 _dimensions;
+    private Matrix4x4 _rotation;
     private MeshFilter _meshFilter;
 
     public Shape(ShapeType type, Color albedo, Vector3 position, Vector3 dimensions) {
         this.type = type;
         this.albedo = albedo;
-        this.position = position;
-        this.dimensions = dimensions;
+        this._position = position;
+        this._dimensions = dimensions;
     }
 
     private void Awake() {
@@ -42,10 +41,13 @@ public class Shape : MonoBehaviour {
     }
 
     private void Update() {
-        position = transform.position;
+        var trans = transform;
+        _position = trans.position;
         
         var meshSize = _meshFilter.sharedMesh.bounds.size;
-        dimensions = Vector3.Scale(meshSize * 0.5f, transform.lossyScale);
+        _dimensions = Vector3.Scale(meshSize * 0.5f, trans.lossyScale);
+        
+        _rotation = Matrix4x4.Rotate(trans.rotation).inverse;
     }
 
     public ShapeData ToData() {
@@ -54,12 +56,13 @@ public class Shape : MonoBehaviour {
         return new ShapeData() {
             type = (int)type,
             albedo = albedo,
-            position = position,
-            dimensions = dimensions,
+            position = _rotation * _position,
+            dimensions = _dimensions,
             numChildren = children.Length - 1,
             operation = (int)blendMode,
             blendSmooth = blendSmooth ? 1 : 0,
-            blendStrength = blendStrength
+            blendStrength = blendStrength,
+            rotation = _rotation
         };
     }
 }
@@ -73,8 +76,9 @@ public struct ShapeData {
     public Vector4 albedo;
     public Vector3 position;
     public Vector3 dimensions;
+    public Matrix4x4 rotation;
 
     public static int SizeOf() {
-        return 11 * sizeof(float) + 4 * sizeof(int);
+        return 27 * sizeof(float) + 4 * sizeof(int);
     }
 }

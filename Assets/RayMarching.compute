@@ -61,6 +61,7 @@ struct Shape
     float4 albedo;
     float3 position;
     float3 dimensions;
+    float4x4 rotation;
 };
 
 StructuredBuffer<Shape> shapes;
@@ -95,14 +96,16 @@ float signedDistanceTorus(float3 pointA, float3 dimensions, float3 center)
 
 float getSignedDistance(Shape shape, float3 rayPos)
 {
+    float3 transformedPos = mul(shape.rotation, float4(rayPos, 1.0f)).xyz;
+    
     switch (shape.type)
     {
         case 0: // Ellipsoid
-            return signedDistanceEllipsoid(rayPos, shape.dimensions, shape.position);
+            return signedDistanceEllipsoid(transformedPos, shape.dimensions, shape.position);
         case 1: // Box
-            return signedDistanceBox(rayPos, shape.dimensions, shape.position);
+            return signedDistanceBox(transformedPos, shape.dimensions, shape.position);
         case 2: // Torus
-            return signedDistanceTorus(rayPos, shape.dimensions, shape.position);
+            return signedDistanceTorus(transformedPos, shape.dimensions, shape.position);
         default:
             return MAX_DISTANCE;
     }
