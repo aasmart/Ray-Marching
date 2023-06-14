@@ -1,6 +1,6 @@
 # Ray-Marching
 
-Explores the ray marching algorithm to render a 3d space
+Explores the ray marching algorithm to render a 3d space. This project was done to better understand Compute Shaders and rendering techniques. I also included the ability for models to be transformed (translate, rotate, etc.) as well as be animated.
 
 ## Resources Used:
 * https://www.youtube.com/watch?v=Cp5WWtMoeKg&t=201s
