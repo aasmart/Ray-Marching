@@ -16,6 +16,7 @@ public enum BlendMode {
 }
 
 [RequireComponent(typeof(MeshFilter))]
+[ExecuteInEditMode]
 public class Shape : MonoBehaviour {
     public ShapeType type;
     public BlendMode blendMode;
@@ -43,7 +44,7 @@ public class Shape : MonoBehaviour {
     private void Update() {
         position = transform.position;
         
-        var meshSize = _meshFilter.mesh.bounds.size;
+        var meshSize = _meshFilter.sharedMesh.bounds.size;
         dimensions = Vector3.Scale(meshSize * 0.5f, transform.lossyScale);
     }
 
