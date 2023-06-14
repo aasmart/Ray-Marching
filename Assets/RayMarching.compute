@@ -36,6 +36,21 @@ Ray createRay(float3 origin, float3 direction)
     return ray;
 }
 
+Ray createCameraRay(float2 uvPos)
+{
+    // Camera origin to world space
+    float3 origin = mul(cameraToWorld, float4(0,0,0,1.0f)).xyz;
+
+    // Invert perspective projection of the view space position
+    float3 dir = mul(cameraInverseProjection, float4(uvPos, 0, 1.0f)).xyz;
+
+    // Direction from camera to world space
+    dir = mul(cameraToWorld, float4(dir, 0.0f)).xyz;
+    dir = normalize(dir);
+
+    return createRay(origin, dir);
+}
+
 struct Shape
 {
     int type;
@@ -72,7 +87,7 @@ float signedDistanceBox(float3 pointA, float3 dimensions, float3 center)
     return length(max(q, 0.0f)) + min(max(q.x, max(q.y, q.z)), 0.0f);
 }
 
-float signedDistanceTorus(float3 pointA, float2 dimensions, float3 center)
+float signedDistanceTorus(float3 pointA, float3 dimensions, float3 center)
 {
     float2 q = float2(length(pointA.xz - center.xz) - dimensions.x, pointA.y - center.y);
     return length(q) - dimensions.y;
@@ -220,7 +235,9 @@ float4 sceneSdf(const float3 rayPos)
 }
 
 /*
- * Calculates the surface normal by approximating the gradient at a point on a shapes surface  
+ * Calculates the surface normal by approximating the gradient of the signed distance field.
+ * This means that the result will be a vector orthogonal to the surface of the shape since
+ * going inside the SDF will decrease the value of the function the quickest
  */
 float3 calculateNormal(float3 pos)
 {
@@ -229,6 +246,46 @@ float3 calculateNormal(float3 pos)
     float gradientZ = sceneSdf(float3(pos.x, pos.y, pos.z + GRADIENT_STEP)).w - sceneSdf(float3(pos.x, pos.y, pos.z - GRADIENT_STEP)).w;
 
     return normalize(float3(gradientX, gradientY, gradientZ) / GRADIENT_STEP);
+}
+
+/*
+ * https://iquilezles.org/articles/rmshadows/
+ *
+ * Marches a ray from a point to the light. If the ray intersects something before
+ * reaching the light, then the point is in shadow.
+ */
+float softShadow(Ray ray, float distanceOffset, float shadowHardness)
+{
+    float distance = distanceOffset;
+    float shadowStrength = 1.0f;
+    
+    for(int i = 0; i < MAX_STEPS; i++)
+    {
+        float3 position = ray.origin + ray.direction * distance;
+        float4 result = sceneSdf(position);
+        
+        float closestDistance = result.w;
+
+        if(closestDistance <= HIT_THRESHOLD)
+        {
+            return 0;
+        }
+
+        /* Changes the strength of the shadow based on the closest ray miss (closestDistance
+         * and how far that miss was along the ray ( / distance, meaning the closer the miss was
+         * to the start of the ray, the darker the shadow)
+         */
+        shadowStrength = min(shadowStrength, shadowHardness * closestDistance / distance);
+
+        if(distance >= MAX_DISTANCE)
+        {
+            break;   
+        }
+
+        distance += closestDistance;
+    }
+
+    return shadowStrength;
 }
 
 float4 marchRay(const in Ray ray)
@@ -248,9 +305,10 @@ float4 marchRay(const in Ray ray)
             float3 normal = calculateNormal(position);
             float3 dirToLight = normalize(position - light.xyz);
 
+            float shadow = softShadow(createRay(position, -dirToLight), 0.1f, 8);
             float diffuse = saturate(dot(normal, isLightDirectional ? dirToLight : -dirToLight)) * light.w;
             
-            return albedo * diffuse;   
+            return albedo * diffuse * shadow;   
         }
 
         if(distance >= MAX_DISTANCE)
@@ -262,21 +320,6 @@ float4 marchRay(const in Ray ray)
     }
 
     return sampleSkybox(ray);
-}
-
-Ray createCameraRay(float2 uvPos)
-{
-    // Camera origin to world space
-    float3 origin = mul(cameraToWorld, float4(0,0,0,1.0f)).xyz;
-
-    // Invert perspective projection of the view space position
-    float3 dir = mul(cameraInverseProjection, float4(uvPos, 0, 1.0f)).xyz;
-
-    // Direction from camera to world space
-    dir = mul(cameraToWorld, float4(dir, 0.0f)).xyz;
-    dir = normalize(dir);
-
-    return createRay(origin, dir);
 }
 
 [numthreads(8,8,1)]
